@@ -27,7 +27,7 @@ jobs:
 
       - name: Initialize required submodules
         shell: pwsh
-        run: git submodule update --init --recursive -- CMake external/vcpkg
+        run: git submodule update --init --recursive -- CMake external/vcpkg external/Vulkan-Headers
 
       - name: Bootstrap vcpkg
         shell: pwsh
