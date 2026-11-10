@@ -140,6 +140,12 @@ namespace ashes::D3D11_NAMESPACE
 		AdapterInfo m_adapterInfo;
 		VkPhysicalDeviceFeatures m_features{};
 		VkPhysicalDeviceProperties m_properties{};
+		VkPhysicalDeviceMemoryProperties m_memoryProperties{};
+#if VK_VERSION_1_1
+		VkPhysicalDeviceMemoryProperties2 m_memoryProperties2{};
+#elif VK_KHR_get_physical_device_properties2
+		VkPhysicalDeviceMemoryProperties2KHR m_memoryProperties2{};
+#endif
 		VkQueueFamilyPropertiesArray m_queueProperties{};
 		mutable std::map< VkFormat, VkFormatProperties > m_formatProperties;
 #if VK_KHR_portability_subset

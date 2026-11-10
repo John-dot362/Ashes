@@ -245,7 +245,7 @@ namespace ashes::D3D11_NAMESPACE
 
 	VkPhysicalDeviceMemoryProperties const & PhysicalDevice::getMemoryProperties()const
 	{
-		return Instance::getMemoryProperties();
+		return m_memoryProperties;
 	}
 
 	VkPhysicalDeviceFeatures const & PhysicalDevice::getFeatures()const
@@ -271,13 +271,16 @@ namespace ashes::D3D11_NAMESPACE
 		, VkImageFormatProperties & imageProperties )const
 	{
 		auto const & formatProperties = m_formatProperties[format];
+		auto tilingFeatures = ( tiling == VK_IMAGE_TILING_LINEAR
+			? formatProperties.linearTilingFeatures
+			: formatProperties.optimalTilingFeatures );
 
-		if ( formatProperties.linearTilingFeatures == 0u )
+		if ( tilingFeatures == 0u )
 		{
 			return VK_ERROR_FORMAT_NOT_SUPPORTED;
 		}
 
-		if ( !checkFlag( getUsageFlags( formatProperties.linearTilingFeatures ), usage ) )
+		if ( !checkFlag( getUsageFlags( tilingFeatures ), usage ) )
 		{
 			return VK_ERROR_FORMAT_NOT_SUPPORTED;
 		}
@@ -422,7 +425,7 @@ namespace ashes::D3D11_NAMESPACE
 
 	VkPhysicalDeviceMemoryProperties2 const & PhysicalDevice::getMemoryProperties2()const
 	{
-		return Instance::getMemoryProperties2();
+		return m_memoryProperties2;
 	}
 
 	VkResult PhysicalDevice::getSparseImageFormatProperties2( VkPhysicalDeviceSparseImageFormatInfo2 const & formatInfo
@@ -633,9 +636,52 @@ namespace ashes::D3D11_NAMESPACE
 			m_properties.driverVersion = adapterDesc.Revision;
 		}
 
-		auto major = uint32_t( m_adapterInfo.featureLevel >> 12 );
-		auto minor = uint32_t( ( m_adapterInfo.featureLevel >> 8 ) & 0x01 );
-		m_properties.apiVersion = ( major << 22 ) | ( minor << 12 );
+		// D3D feature levels are not Vulkan API versions. This ICD currently
+		// exposes the Vulkan 1.0 entry-point set, so do not advertise 1.1+.
+		m_properties.apiVersion = VK_API_VERSION_1_0;
+		m_memoryProperties = {};
+		uint64_t dedicatedVideoMemory = 0u;
+		uint64_t sharedSystemMemory = 0u;
+
+		if ( m_adapterInfo.adapter2 )
+		{
+			if ( DXGI_ADAPTER_DESC2 desc{}; SUCCEEDED( m_adapterInfo.adapter2->GetDesc2( &desc ) ) )
+			{
+				dedicatedVideoMemory = uint64_t( desc.DedicatedVideoMemory );
+				sharedSystemMemory = uint64_t( desc.SharedSystemMemory );
+			}
+		}
+		else if ( m_adapterInfo.adapter1 )
+		{
+			if ( DXGI_ADAPTER_DESC1 desc{}; SUCCEEDED( m_adapterInfo.adapter1->GetDesc1( &desc ) ) )
+			{
+				dedicatedVideoMemory = uint64_t( desc.DedicatedVideoMemory );
+				sharedSystemMemory = uint64_t( desc.SharedSystemMemory );
+			}
+		}
+
+		if ( dedicatedVideoMemory == 0u )
+		{
+			dedicatedVideoMemory = sharedSystemMemory;
+		}
+		if ( sharedSystemMemory == 0u )
+		{
+			sharedSystemMemory = dedicatedVideoMemory;
+		}
+
+		m_memoryProperties.memoryHeapCount = 2u;
+		m_memoryProperties.memoryHeaps[0] = { dedicatedVideoMemory, VK_MEMORY_HEAP_DEVICE_LOCAL_BIT };
+		m_memoryProperties.memoryHeaps[1] = { sharedSystemMemory, 0u };
+		m_memoryProperties.memoryTypeCount = 3u;
+		m_memoryProperties.memoryTypes[0] = { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0u };
+		m_memoryProperties.memoryTypes[1] = { VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 1u };
+		m_memoryProperties.memoryTypes[2] = { VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, 1u };
+#if VK_VERSION_1_1
+		m_memoryProperties2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2, nullptr, m_memoryProperties };
+#elif VK_KHR_get_physical_device_properties2
+		m_memoryProperties2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2_KHR, nullptr, m_memoryProperties };
+#endif
+
 		m_properties.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
 		m_properties.limits.maxImageDimension1D = D3D11_REQ_TEXTURE1D_U_DIMENSION;
@@ -654,19 +700,19 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxBoundDescriptorSets = 8u;
 		m_properties.limits.maxPerStageDescriptorSamplers = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxPerStageDescriptorUniformBuffers = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
-		m_properties.limits.maxPerStageDescriptorStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
-		m_properties.limits.maxPerStageDescriptorSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
-		m_properties.limits.maxPerStageDescriptorStorageImages = 1048576u;
-		m_properties.limits.maxPerStageDescriptorInputAttachments = 1048576u;
-		m_properties.limits.maxPerStageResources = 4294967295u;
+		m_properties.limits.maxPerStageDescriptorStorageBuffers = 8u;
+		m_properties.limits.maxPerStageDescriptorSampledImages = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;
+		m_properties.limits.maxPerStageDescriptorStorageImages = 8u;
+		m_properties.limits.maxPerStageDescriptorInputAttachments = 4u;
+		m_properties.limits.maxPerStageResources = 128u;
 		m_properties.limits.maxDescriptorSetSamplers = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxDescriptorSetUniformBuffers = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetUniformBuffersDynamic = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageBuffersDynamic = D3D11_1_UAV_SLOT_COUNT;
-		m_properties.limits.maxDescriptorSetSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
-		m_properties.limits.maxDescriptorSetStorageImages = 1048576u;
-		m_properties.limits.maxDescriptorSetInputAttachments = 1048576u;
+		m_properties.limits.maxDescriptorSetSampledImages = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;
+		m_properties.limits.maxDescriptorSetStorageImages = 64u;
+		m_properties.limits.maxDescriptorSetInputAttachments = 4u;
 		m_properties.limits.maxVertexInputAttributes = D3D11_VS_INPUT_REGISTER_COUNT;
 		m_properties.limits.maxVertexInputBindings = D3D11_VS_INPUT_REGISTER_COUNT;
 		m_properties.limits.maxVertexInputAttributeOffset = 2047u;
@@ -693,7 +739,7 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxComputeWorkGroupCount[0] = D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
 		m_properties.limits.maxComputeWorkGroupCount[1] = D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
 		m_properties.limits.maxComputeWorkGroupCount[2] = D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
-		m_properties.limits.maxComputeWorkGroupInvocations = 1536u;
+		m_properties.limits.maxComputeWorkGroupInvocations = 1024u;
 		m_properties.limits.maxComputeWorkGroupSize[0] = D3D11_CS_THREAD_GROUP_MAX_X;
 		m_properties.limits.maxComputeWorkGroupSize[1] = D3D11_CS_THREAD_GROUP_MAX_Y;
 		m_properties.limits.maxComputeWorkGroupSize[2] = D3D11_CS_THREAD_GROUP_MAX_Z;
@@ -729,10 +775,10 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.framebufferStencilSampleCounts = 31u;
 		m_properties.limits.framebufferNoAttachmentsSampleCounts = 31u;
 		m_properties.limits.maxColorAttachments = 8u;
-		m_properties.limits.sampledImageColorSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
-		m_properties.limits.sampledImageIntegerSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
-		m_properties.limits.sampledImageDepthSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
-		m_properties.limits.sampledImageStencilSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
+		m_properties.limits.sampledImageColorSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+		m_properties.limits.sampledImageIntegerSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+		m_properties.limits.sampledImageDepthSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+		m_properties.limits.sampledImageStencilSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
 		m_properties.limits.storageImageSampleCounts = 15u;
 		m_properties.limits.maxSampleMaskWords = 1u;
 		m_properties.limits.timestampComputeAndGraphics = true;
@@ -768,18 +814,18 @@ namespace ashes::D3D11_NAMESPACE
 		m_features.independentBlend = true;
 		m_features.geometryShader = false;//! m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_10_0;
 		m_features.tessellationShader = false;//! m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
-		m_features.sampleRateShading = true;
+		m_features.sampleRateShading = false;
 		m_features.dualSrcBlend = true;
-		m_features.logicOp = true;
+		m_features.logicOp = false;
 		m_features.multiDrawIndirect = false;
 		m_features.drawIndirectFirstInstance = true;
 		m_features.depthClamp = true;
 		m_features.depthBiasClamp = true;
 		m_features.fillModeNonSolid = true;
-		m_features.depthBounds = true;
+		m_features.depthBounds = false;
 		m_features.wideLines = false;
 		m_features.largePoints = false;
-		m_features.alphaToOne = true;
+		m_features.alphaToOne = false;
 		m_features.multiViewport = true;
 		m_features.samplerAnisotropy = true;
 		m_features.textureCompressionETC2 = false;
@@ -787,8 +833,8 @@ namespace ashes::D3D11_NAMESPACE
 		m_features.textureCompressionBC = true;
 		m_features.occlusionQueryPrecise = true;
 		m_features.pipelineStatisticsQuery = true;
-		m_features.vertexPipelineStoresAndAtomics = true;
-		m_features.fragmentStoresAndAtomics = true;
+		m_features.vertexPipelineStoresAndAtomics = false;
+		m_features.fragmentStoresAndAtomics = m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
 		m_features.shaderTessellationAndGeometryPointSize = false;//! m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
 		m_features.shaderImageGatherExtended = m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
 		m_features.shaderStorageImageExtendedFormats = m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
@@ -825,8 +871,8 @@ namespace ashes::D3D11_NAMESPACE
 		m_queueProperties.reserve( 1u );
 		m_queueProperties.push_back(
 			{
-				0xFFFFFFFF,
-				8u,
+				VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT,
+				1u,
 				1u,
 				{
 					1u,
@@ -855,10 +901,10 @@ namespace ashes::D3D11_NAMESPACE
 #endif
 
 		D3D_FEATURE_LEVEL supportedFeatureLevel = getFeatureLevel();
-		D3D_FEATURE_LEVEL featureLevel;
-		ID3D11Device * d3dDevice;
-		D3D11CreateDevice( nullptr
-			, D3D_DRIVER_TYPE_HARDWARE
+		D3D_FEATURE_LEVEL featureLevel{};
+		ID3D11Device * d3dDevice{};
+		auto hr = D3D11CreateDevice( m_adapterInfo.adapter
+			, D3D_DRIVER_TYPE_UNKNOWN
 			, nullptr
 			, flags
 			, &supportedFeatureLevel
@@ -868,7 +914,7 @@ namespace ashes::D3D11_NAMESPACE
 			, &featureLevel
 			, nullptr );
 
-		if ( d3dDevice )
+		if ( SUCCEEDED( hr ) && d3dDevice )
 		{
 			auto fillProps = [&d3dDevice]( VkFormat fmt
 				, VkFormatProperties & props
@@ -914,8 +960,8 @@ namespace ashes::D3D11_NAMESPACE
 					{
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT;
-						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_EXT;
+						
+						
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_SRC_BIT;
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_DST_BIT;
 					}

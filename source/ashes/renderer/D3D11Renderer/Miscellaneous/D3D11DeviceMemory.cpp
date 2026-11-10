@@ -71,9 +71,14 @@ namespace ashes::D3D11_NAMESPACE
 		, deviceMemory{ deviceMemory }
 		, resource{ resource }
 		, offset{ offset }
+		, size{ allocateInfo.allocationSize }
 		, allocateInfo{ std::move( allocateInfo ) }
 		, mapFlags{ mapFlags }
 	{
+		if ( !resource )
+		{
+			throw ashes::Exception{ VK_ERROR_OUT_OF_DEVICE_MEMORY, "D3D11 resource creation failed" };
+		}
 	}
 
 	ObjectMemory::ObjectMemory( ObjectMemory && rhs )noexcept
@@ -81,6 +86,7 @@ namespace ashes::D3D11_NAMESPACE
 		, deviceMemory{ rhs.deviceMemory }
 		, resource{ rhs.resource }
 		, offset{ rhs.offset }
+		, size{ rhs.size }
 		, allocateInfo{ std::move( rhs.allocateInfo ) }
 		, mapFlags{ rhs.mapFlags }
 		, subresources{ std::move( rhs.subresources ) }
@@ -89,15 +95,21 @@ namespace ashes::D3D11_NAMESPACE
 		rhs.deviceMemory = nullptr;
 		rhs.resource = nullptr;
 		rhs.offset = 0;
+		rhs.size = 0;
 		rhs.mapFlags = D3D11_MAP( 0 );
 	}
 
 	ObjectMemory & ObjectMemory::operator=( ObjectMemory && rhs )noexcept
 	{
+		if ( this != &rhs )
+		{
+			safeRelease( resource );
+		}
 		device = rhs.device;
 		deviceMemory = rhs.deviceMemory;
 		resource = rhs.resource;
 		offset = rhs.offset;
+		size = rhs.size;
 		allocateInfo = std::move( rhs.allocateInfo );
 		mapFlags = rhs.mapFlags;
 		subresources = std::move( rhs.subresources );
@@ -106,6 +118,7 @@ namespace ashes::D3D11_NAMESPACE
 		rhs.deviceMemory = nullptr;
 		rhs.resource = nullptr;
 		rhs.offset = 0;
+		rhs.size = 0;
 		rhs.mapFlags = D3D11_MAP( 0 );
 
 		return *this;
@@ -120,6 +133,11 @@ namespace ashes::D3D11_NAMESPACE
 		, UINT subresource
 		, D3D11_MAPPED_SUBRESOURCE & data )const
 	{
+		if ( !resource )
+		{
+			return VK_ERROR_MEMORY_MAP_FAILED;
+		}
+
 		if ( HRESULT hr = context->Map( resource
 				, subresource
 				, mapFlags
@@ -145,53 +163,54 @@ namespace ashes::D3D11_NAMESPACE
 		, VkDeviceSize poffset
 		, VkDeviceSize psize )const
 	{
-		assert( subresource < subresources.size() );
-		auto & subresourceLayout = subresources[subresource];
-		auto maxOffset = std::max( offset, poffset );
-		auto objectOffset = maxOffset - offset;
-		auto copySize = VkDeviceSize( psize - std::abs( int64_t( poffset ) - int64_t( offset ) ) );
-
-		if ( psize == WholeSize )
+		if ( !data || !resource || subresource >= subresources.size() || offset >= allocateInfo.allocationSize )
 		{
-			assert( poffset == 0ull );
-			copySize = allocateInfo.allocationSize;
-		}
-		else if ( copySize > allocateInfo.allocationSize )
-		{
-			copySize = allocateInfo.allocationSize - objectOffset;
+			return;
 		}
 
+		auto allocationSize = allocateInfo.allocationSize;
+		auto objectSize = std::min( size, allocationSize - offset );
+		auto objectEnd = offset + objectSize;
+		auto requestOffset = std::min( poffset, allocationSize );
+		auto requestSize = ( psize == WholeSize ? allocationSize - requestOffset : std::min( psize, allocationSize - requestOffset ) );
+		auto copyStart = std::max( offset, requestOffset );
+		auto copyEnd = std::min( objectEnd, requestOffset + requestSize );
+		if ( copyEnd <= copyStart )
+		{
+			return;
+		}
+
+		auto objectOffset = copyStart - offset;
+		auto copySize = copyEnd - copyStart;
+		auto & layout = subresources[subresource];
 		D3D11_MAPPED_SUBRESOURCE mapped{};
 
 		if ( lock( *context, subresource, mapped ) == VK_SUCCESS )
 		{
-			assert( mapped.pData != nullptr );
-			auto dstData = static_cast< uint8_t * >( mapped.pData ) + objectOffset;
-			assert( dstData != nullptr );
-
-			if ( mapped.DepthPitch == subresourceLayout.SysMemSlicePitch
-				|| mapped.RowPitch == subresourceLayout.SysMemPitch )
+			if ( mapped.pData && mapped.DepthPitch > 0u && mapped.RowPitch > 0u )
 			{
-				copySize = std::min( copySize, VkDeviceSize( mapped.DepthPitch ) );
-				std::memcpy( dstData, data + maxOffset, copySize );
-			}
-			else
-			{
-				auto mappedSteps = mapped.DepthPitch / mapped.RowPitch;
-				auto systemSteps = subresourceLayout.SysMemSlicePitch / subresourceLayout.SysMemPitch;
-				auto rowSize = std::min( mapped.RowPitch, subresourceLayout.SysMemPitch );
-				assert( mappedSteps == systemSteps );
-				auto src = data + maxOffset;
-				auto dst = dstData;
+				auto dst = static_cast< uint8_t * >( mapped.pData ) + objectOffset;
+				auto src = data + copyStart;
 
-				for ( UINT step = 0u; step < std::min( mappedSteps, systemSteps ); ++step )
+				if ( mapped.DepthPitch == layout.SysMemSlicePitch || mapped.RowPitch == layout.SysMemPitch )
 				{
-					std::memcpy( dst, src, rowSize );
-					src += subresourceLayout.SysMemPitch;
-					dst += mapped.RowPitch;
+					copySize = std::min( copySize, VkDeviceSize( mapped.DepthPitch ) - std::min( objectOffset, VkDeviceSize( mapped.DepthPitch ) ) );
+					if ( copySize > 0u ) std::memcpy( dst, src, size_t( copySize ) );
+				}
+				else if ( layout.SysMemPitch > 0u )
+				{
+					auto mappedSteps = mapped.DepthPitch / mapped.RowPitch;
+					auto systemSteps = layout.SysMemSlicePitch / layout.SysMemPitch;
+					auto rowSize = std::min( mapped.RowPitch, layout.SysMemPitch );
+					for ( UINT step = 0u; step < std::min( mappedSteps, systemSteps ); ++step )
+					{
+						auto rowOffset = VkDeviceSize( step ) * layout.SysMemPitch;
+						if ( rowOffset >= copySize ) break;
+						auto bytes = std::min( VkDeviceSize( rowSize ), copySize - rowOffset );
+						std::memcpy( static_cast< uint8_t * >( mapped.pData ) + VkDeviceSize( step ) * mapped.RowPitch, src + rowOffset, size_t( bytes ) );
+					}
 				}
 			}
-
 			unlock( *context, subresource );
 		}
 	}
@@ -202,53 +221,54 @@ namespace ashes::D3D11_NAMESPACE
 		, VkDeviceSize poffset
 		, VkDeviceSize psize )const
 	{
-		assert( subresource < subresources.size() );
-		auto & subresourceLayout = subresources[subresource];
-		auto maxOffset = std::max( this->offset, poffset );
-		auto objectOffset = maxOffset - this->offset;
-		auto copySize = VkDeviceSize( psize - std::abs( int64_t( poffset ) - int64_t( this->offset ) ) );
-
-		if ( psize == WholeSize )
+		if ( !data || !resource || subresource >= subresources.size() || offset >= allocateInfo.allocationSize )
 		{
-			assert( poffset == 0ull );
-			objectOffset = 0u;
-			copySize = allocateInfo.allocationSize;
-		}
-		else if ( copySize > allocateInfo.allocationSize )
-		{
-			copySize = allocateInfo.allocationSize - objectOffset;
+			return;
 		}
 
+		auto allocationSize = allocateInfo.allocationSize;
+		auto objectSize = std::min( size, allocationSize - offset );
+		auto objectEnd = offset + objectSize;
+		auto requestOffset = std::min( poffset, allocationSize );
+		auto requestSize = ( psize == WholeSize ? allocationSize - requestOffset : std::min( psize, allocationSize - requestOffset ) );
+		auto copyStart = std::max( offset, requestOffset );
+		auto copyEnd = std::min( objectEnd, requestOffset + requestSize );
+		if ( copyEnd <= copyStart )
+		{
+			return;
+		}
+
+		auto objectOffset = copyStart - offset;
+		auto copySize = copyEnd - copyStart;
+		auto & layout = subresources[subresource];
 		D3D11_MAPPED_SUBRESOURCE mapped{};
 
 		if ( lock( *context, subresource, mapped ) == VK_SUCCESS )
 		{
-			assert( mapped.pData != nullptr );
-			auto srcData = static_cast< uint8_t const * >( mapped.pData ) + objectOffset;
-			assert( srcData != nullptr );
-
-			if ( mapped.RowPitch != subresourceLayout.SysMemPitch )
+			if ( mapped.pData && mapped.DepthPitch > 0u && mapped.RowPitch > 0u )
 			{
-				auto mappedSteps = mapped.DepthPitch / mapped.RowPitch;
-				auto systemSteps = subresourceLayout.SysMemSlicePitch / subresourceLayout.SysMemPitch;
-				auto rowSize = std::min( mapped.RowPitch, subresourceLayout.SysMemPitch );
-				assert( mappedSteps == systemSteps );
-				auto src = srcData;
-				auto dst = data + maxOffset;
+				auto src = static_cast< uint8_t const * >( mapped.pData ) + objectOffset;
+				auto dst = data + copyStart;
 
-				for ( UINT step = 0u; step < std::min( mappedSteps, systemSteps ); ++step )
+				if ( mapped.DepthPitch == layout.SysMemSlicePitch || mapped.RowPitch == layout.SysMemPitch )
 				{
-					std::memcpy( dst, src, rowSize );
-					src += mapped.RowPitch;
-					dst += subresourceLayout.SysMemPitch;
+					copySize = std::min( copySize, VkDeviceSize( mapped.DepthPitch ) - std::min( objectOffset, VkDeviceSize( mapped.DepthPitch ) ) );
+					if ( copySize > 0u ) std::memcpy( dst, src, size_t( copySize ) );
+				}
+				else if ( layout.SysMemPitch > 0u )
+				{
+					auto mappedSteps = mapped.DepthPitch / mapped.RowPitch;
+					auto systemSteps = layout.SysMemSlicePitch / layout.SysMemPitch;
+					auto rowSize = std::min( mapped.RowPitch, layout.SysMemPitch );
+					for ( UINT step = 0u; step < std::min( mappedSteps, systemSteps ); ++step )
+					{
+						auto rowOffset = VkDeviceSize( step ) * layout.SysMemPitch;
+						if ( rowOffset >= copySize ) break;
+						auto bytes = std::min( VkDeviceSize( rowSize ), copySize - rowOffset );
+						std::memcpy( dst + rowOffset, static_cast< uint8_t const * >( mapped.pData ) + VkDeviceSize( step ) * mapped.RowPitch, size_t( bytes ) );
+					}
 				}
 			}
-			else
-			{
-				copySize = std::min( copySize, VkDeviceSize( mapped.DepthPitch ) );
-				std::memcpy( data + maxOffset, srcData, copySize );
-			}
-
 			unlock( *context, subresource );
 		}
 	}
@@ -262,13 +282,15 @@ namespace ashes::D3D11_NAMESPACE
 			, VkDeviceMemory parent
 			, VkDeviceSize offset
 			, VkMemoryAllocateInfo allocateInfo
+			, VkDeviceSize bufferSize
 			, VkBufferUsageFlags targets )
 			: m_bufferTargets{ targets }
 			, m_propertyFlags{ mem::getMemoryProperties( allocateInfo.memoryTypeIndex ) }
-			, m_buffer{ doCreateBuffer( device, allocateInfo ) }
+			, m_buffer{ doCreateBuffer( device, bufferSize ) }
 			, memory{ device, parent, m_buffer, offset, std::move( allocateInfo ), getBufferMapFlags( m_propertyFlags, m_bufferTargets ) }
 		{
-			memory.subresources.push_back( { nullptr, UINT( memory.allocateInfo.allocationSize ), UINT( memory.allocateInfo.allocationSize ) } );
+			memory.size = bufferSize;
+			memory.subresources.push_back( { nullptr, UINT( bufferSize ), UINT( bufferSize ) } );
 		}
 
 		inline ID3D11Buffer * getBuffer()const
@@ -278,13 +300,17 @@ namespace ashes::D3D11_NAMESPACE
 
 	private:
 		ID3D11Buffer * doCreateBuffer( VkDevice device
-			, VkMemoryAllocateInfo const & allocateInfo )const
+			, VkDeviceSize bufferSize )const
 		{
 			ID3D11Buffer * result{ nullptr };
 			auto d3ddevice = get( device )->getDevice();
 
-			if ( auto size = UINT( allocateInfo.allocationSize );
-				size > 0 )
+			if ( bufferSize == 0u || bufferSize > 0xFFFFFFFFULL )
+			{
+				throw ashes::Exception{ VK_ERROR_OUT_OF_DEVICE_MEMORY, "D3D11 buffer size exceeds UINT range" };
+			}
+
+			if ( auto size = UINT( bufferSize ); size > 0u )
 			{
 				D3D11_BUFFER_DESC desc{};
 				desc.ByteWidth = size;
@@ -298,10 +324,12 @@ namespace ashes::D3D11_NAMESPACE
 
 				auto hr = d3ddevice->CreateBuffer( &desc, nullptr, &result );
 
-				if ( checkError( device, hr, "CreateBuffer" ) )
+				if ( !checkError( device, hr, "CreateBuffer" ) || !result )
 				{
-					dxDebugName( result, Buffer );
+					throw ashes::Exception{ VK_ERROR_OUT_OF_DEVICE_MEMORY, "ID3D11Device::CreateBuffer failed" };
 				}
+
+				dxDebugName( result, Buffer );
 			}
 
 			return result;
@@ -601,7 +629,7 @@ namespace ashes::D3D11_NAMESPACE
 
 		if ( ashes::checkFlag( m_propertyFlags, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) )
 		{
-			m_data.resize( allocateInfo.allocationSize, defaultInitValue );
+			m_data.resize( m_allocateInfo.allocationSize, defaultInitValue );
 			++defaultInitValue;
 		}
 	}
@@ -628,6 +656,7 @@ namespace ashes::D3D11_NAMESPACE
 				get( this ),
 				memoryOffset,
 				m_allocateInfo,
+				get( buffer )->getSize(),
 				get( buffer )->getUsage()
 			};
 			m_objects.emplace_back( std::make_unique< ObjectMemory >( std::move( impl.memory ) ) );
@@ -669,6 +698,7 @@ namespace ashes::D3D11_NAMESPACE
 				m_allocateInfo,
 				get( image )->getCreateInfo()
 			};
+			impl.memory.size = get( image )->getMemoryRequirements().size;
 			m_objects.emplace_back( std::make_unique< ObjectMemory >( std::move( impl.memory ) ) );
 			objectMemory = m_objects.back().get();
 			auto context{ get( m_device )->getImmediateContext() };
@@ -708,6 +738,7 @@ namespace ashes::D3D11_NAMESPACE
 				m_allocateInfo,
 				get( image )->getCreateInfo()
 			};
+			impl.memory.size = get( image )->getMemoryRequirements().size;
 			m_objects.emplace_back( std::make_unique< ObjectMemory >( std::move( impl.memory ) ) );
 			objectMemory = m_objects.back().get();
 			auto context{ get( m_device )->getImmediateContext() };
@@ -747,6 +778,7 @@ namespace ashes::D3D11_NAMESPACE
 				m_allocateInfo,
 				get( image )->getCreateInfo()
 			};
+			impl.memory.size = get( image )->getMemoryRequirements().size;
 			m_objects.emplace_back( std::make_unique< ObjectMemory >( std::move( impl.memory ) ) );
 			objectMemory = m_objects.back().get();
 			auto context{ get( m_device )->getImmediateContext() };
@@ -813,29 +845,10 @@ namespace ashes::D3D11_NAMESPACE
 	{
 		if ( !m_data.empty() && !m_objects.empty() )
 		{
-			auto paramOffset = offset;
-			auto paramSize = size;
-
 			for ( auto & object : m_objects )
 			{
-				auto objectOffset = std::max( paramOffset, object->offset ) - object->offset;
-				auto objectSize = std::min( paramSize
-					, ( object->allocateInfo.allocationSize > objectOffset
-						? object->allocateInfo.allocationSize - objectOffset
-						: 0u ) );
-				objectOffset = object->offset;
-
-				if ( objectSize > 0u
-					&& paramOffset + paramSize > objectOffset )
-				{
-					object->upload( context
-						, m_data.data()
-						, subresource
-						, offset
-						, size );
-				}
+				object->upload( context, m_data.data(), subresource, offset, size );
 			}
-
 			m_dirty = false;
 		}
 	}
@@ -847,29 +860,10 @@ namespace ashes::D3D11_NAMESPACE
 	{
 		if ( !m_data.empty() && !m_objects.empty() )
 		{
-			auto paramOffset = offset;
-			auto paramSize = size;
-
 			for ( auto & object : m_objects )
 			{
-				auto objectOffset = std::max( paramOffset, object->offset ) - object->offset;
-				auto objectSize = std::min( paramSize
-					, ( object->allocateInfo.allocationSize > objectOffset
-						? object->allocateInfo.allocationSize - objectOffset
-						: 0u ) );
-				objectOffset = object->offset;
-
-				if ( objectSize > 0u
-					&& paramOffset + paramSize > objectOffset )
-				{
-					object->download( context
-						, m_data.data()
-						, subresource
-						, offset
-						, size );
-				}
+				object->download( context, m_data.data(), subresource, offset, size );
 			}
-
 			m_dirty = false;
 		}
 	}
@@ -880,11 +874,13 @@ namespace ashes::D3D11_NAMESPACE
 		, VkDeviceSize size )
 	{
 		if ( !m_data.empty()
-			&& !get( src )->m_data.empty() )
+			&& !get( src )->m_data.empty()
+			&& srcOffset <= get( src )->m_data.size()
+			&& dstOffset <= m_data.size()
+			&& size <= get( src )->m_data.size() - srcOffset
+			&& size <= m_data.size() - dstOffset )
 		{
-			std::memcpy( &m_data[dstOffset]
-				, &get( src )->m_data[srcOffset]
-				, size );
+			std::memcpy( &m_data[dstOffset], &get( src )->m_data[srcOffset], size_t( size ) );
 		}
 	}
 
@@ -895,12 +891,9 @@ namespace ashes::D3D11_NAMESPACE
 	{
 		assert( !m_mapped && "VkDeviceMemory should not be mapped" );
 		assert( !m_data.empty() && "VkDeviceMemory should be mappable" );
-		size = (size == WholeSize
-			? m_allocateInfo.allocationSize
-			: size);
-
-		if ( m_data.size() <= offset 
-			|| m_data.size() < ( offset + size ) )
+		if ( offset >= m_allocateInfo.allocationSize ) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		size = ( size == WholeSize ? m_allocateInfo.allocationSize - offset : size );
+		if ( size > m_allocateInfo.allocationSize - offset )
 		{
 			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
 		}
@@ -920,12 +913,9 @@ namespace ashes::D3D11_NAMESPACE
 	{
 		assert( m_mapped && "VkDeviceMemory should be mapped" );
 		assert( !m_data.empty() && "VkDeviceMemory should be mappable" );
-		size = ( size == WholeSize
-			? m_allocateInfo.allocationSize
-			: size );
-
-		if ( m_data.size() <= offset
-			|| m_data.size() < ( offset + size ) )
+		if ( offset >= m_allocateInfo.allocationSize ) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		size = ( size == WholeSize ? m_allocateInfo.allocationSize - offset : size );
+		if ( size > m_allocateInfo.allocationSize - offset )
 		{
 			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
 		}
@@ -940,12 +930,9 @@ namespace ashes::D3D11_NAMESPACE
 	{
 		assert( m_mapped && "VkDeviceMemory should be mapped" );
 		assert( !m_data.empty() && "VkDeviceMemory should be mappable" );
-		size = ( size == WholeSize
-			? m_allocateInfo.allocationSize
-			: size );
-
-		if ( m_data.size() <= offset
-			|| m_data.size() < ( offset + size ) )
+		if ( offset >= m_allocateInfo.allocationSize ) return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+		size = ( size == WholeSize ? m_allocateInfo.allocationSize - offset : size );
+		if ( size > m_allocateInfo.allocationSize - offset )
 		{
 			return VK_ERROR_OUT_OF_DEVICE_MEMORY;
 		}

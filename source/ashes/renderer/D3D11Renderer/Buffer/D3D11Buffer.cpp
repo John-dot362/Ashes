@@ -71,6 +71,11 @@ namespace ashes::D3D11_NAMESPACE
 			, m_memoryOffset
 			, m_objectMemory );
 
+		if ( result != VK_SUCCESS || !m_objectMemory || !m_objectMemory->resource )
+		{
+			return result == VK_SUCCESS ? VK_ERROR_OUT_OF_DEVICE_MEMORY : result;
+		}
+
 		if ( !m_debugName.empty() )
 		{
 			m_objectMemory->resource->SetPrivateData( WKPDID_D3DDebugObjectName
