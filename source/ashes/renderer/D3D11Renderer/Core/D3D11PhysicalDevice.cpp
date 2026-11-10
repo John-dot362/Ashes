@@ -855,10 +855,10 @@ namespace ashes::D3D11_NAMESPACE
 #endif
 
 		D3D_FEATURE_LEVEL supportedFeatureLevel = getFeatureLevel();
-		D3D_FEATURE_LEVEL featureLevel;
-		ID3D11Device * d3dDevice;
-		D3D11CreateDevice( nullptr
-			, D3D_DRIVER_TYPE_HARDWARE
+		D3D_FEATURE_LEVEL featureLevel{};
+		ID3D11Device * d3dDevice{};
+		auto hr = D3D11CreateDevice( m_adapterInfo.adapter
+			, D3D_DRIVER_TYPE_UNKNOWN
 			, nullptr
 			, flags
 			, &supportedFeatureLevel
@@ -868,7 +868,7 @@ namespace ashes::D3D11_NAMESPACE
 			, &featureLevel
 			, nullptr );
 
-		if ( d3dDevice )
+		if ( SUCCEEDED( hr ) && d3dDevice )
 		{
 			auto fillProps = [&d3dDevice]( VkFormat fmt
 				, VkFormatProperties & props
