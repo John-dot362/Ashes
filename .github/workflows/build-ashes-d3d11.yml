@@ -60,6 +60,7 @@ jobs:
             "-DCMAKE_TOOLCHAIN_FILE=$root/external/vcpkg/scripts/buildsystems/vcpkg.cmake",
             "-DVCPKG_TARGET_TRIPLET=x64-windows",
             "-DVCPKG_INSTALLED_DIR=$root/build/vcpkg_installed",
+            "-D_VCPKG_INSTALLED_DIR=$root/build/vcpkg_installed",
             '-DVCPKG_MANIFEST_INSTALL=OFF',
             '-DVCPKG_MANIFEST_FEATURES=vulkan;direct3d11',
             '-DASHES_BUILD_RENDERER_PLUGINS=ON',
