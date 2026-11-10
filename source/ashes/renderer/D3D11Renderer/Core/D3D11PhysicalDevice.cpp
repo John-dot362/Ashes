@@ -693,7 +693,7 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxComputeWorkGroupCount[0] = D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
 		m_properties.limits.maxComputeWorkGroupCount[1] = D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
 		m_properties.limits.maxComputeWorkGroupCount[2] = D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION;
-		m_properties.limits.maxComputeWorkGroupInvocations = 1536u;
+		m_properties.limits.maxComputeWorkGroupInvocations = 1024u;
 		m_properties.limits.maxComputeWorkGroupSize[0] = D3D11_CS_THREAD_GROUP_MAX_X;
 		m_properties.limits.maxComputeWorkGroupSize[1] = D3D11_CS_THREAD_GROUP_MAX_Y;
 		m_properties.limits.maxComputeWorkGroupSize[2] = D3D11_CS_THREAD_GROUP_MAX_Z;
@@ -768,18 +768,18 @@ namespace ashes::D3D11_NAMESPACE
 		m_features.independentBlend = true;
 		m_features.geometryShader = false;//! m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_10_0;
 		m_features.tessellationShader = false;//! m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
-		m_features.sampleRateShading = true;
+		m_features.sampleRateShading = false;
 		m_features.dualSrcBlend = true;
-		m_features.logicOp = true;
+		m_features.logicOp = false;
 		m_features.multiDrawIndirect = false;
 		m_features.drawIndirectFirstInstance = true;
 		m_features.depthClamp = true;
 		m_features.depthBiasClamp = true;
 		m_features.fillModeNonSolid = true;
-		m_features.depthBounds = true;
+		m_features.depthBounds = false;
 		m_features.wideLines = false;
 		m_features.largePoints = false;
-		m_features.alphaToOne = true;
+		m_features.alphaToOne = false;
 		m_features.multiViewport = true;
 		m_features.samplerAnisotropy = true;
 		m_features.textureCompressionETC2 = false;
@@ -825,8 +825,8 @@ namespace ashes::D3D11_NAMESPACE
 		m_queueProperties.reserve( 1u );
 		m_queueProperties.push_back(
 			{
-				0xFFFFFFFF,
-				8u,
+				VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT,
+				1u,
 				1u,
 				{
 					1u,
