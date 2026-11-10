@@ -545,8 +545,9 @@ namespace ashes::D3D11_NAMESPACE
 		D3D_FEATURE_LEVEL supportedFeatureLevel = get( m_physicalDevice )->getFeatureLevel();
 		{
 			lock_type lock{ m_mtxDeviceContext };
-			D3D11CreateDevice( nullptr
-				, D3D_DRIVER_TYPE_HARDWARE
+			auto adapter = get( m_physicalDevice )->getAdapter();
+			auto hr = D3D11CreateDevice( adapter
+				, D3D_DRIVER_TYPE_UNKNOWN
 				, nullptr
 				, flags
 				, &supportedFeatureLevel
@@ -555,6 +556,11 @@ namespace ashes::D3D11_NAMESPACE
 				, &m_d3dDevice
 				, &m_featureLevel
 				, &m_deviceContext );
+
+			if ( FAILED( hr ) || !m_d3dDevice || !m_deviceContext )
+			{
+				throw ashes::Exception{ VK_ERROR_INITIALIZATION_FAILED, "Failed to create D3D11 device for selected DXGI adapter" };
+			}
 		}
 
 		if ( m_d3dDevice )
