@@ -271,13 +271,16 @@ namespace ashes::D3D11_NAMESPACE
 		, VkImageFormatProperties & imageProperties )const
 	{
 		auto const & formatProperties = m_formatProperties[format];
+		auto tilingFeatures = ( tiling == VK_IMAGE_TILING_LINEAR
+			? formatProperties.linearTilingFeatures
+			: formatProperties.optimalTilingFeatures );
 
-		if ( formatProperties.linearTilingFeatures == 0u )
+		if ( tilingFeatures == 0u )
 		{
 			return VK_ERROR_FORMAT_NOT_SUPPORTED;
 		}
 
-		if ( !checkFlag( getUsageFlags( formatProperties.linearTilingFeatures ), usage ) )
+		if ( !checkFlag( getUsageFlags( tilingFeatures ), usage ) )
 		{
 			return VK_ERROR_FORMAT_NOT_SUPPORTED;
 		}
@@ -657,7 +660,7 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxPerStageDescriptorStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxPerStageDescriptorSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxPerStageDescriptorStorageImages = 8u;
-		m_properties.limits.maxPerStageDescriptorInputAttachments = 0u;
+		m_properties.limits.maxPerStageDescriptorInputAttachments = 4u;
 		m_properties.limits.maxPerStageResources = 128u;
 		m_properties.limits.maxDescriptorSetSamplers = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxDescriptorSetUniformBuffers = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
@@ -666,7 +669,7 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxDescriptorSetStorageBuffersDynamic = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxDescriptorSetStorageImages = 64u;
-		m_properties.limits.maxDescriptorSetInputAttachments = 0u;
+		m_properties.limits.maxDescriptorSetInputAttachments = 4u;
 		m_properties.limits.maxVertexInputAttributes = D3D11_VS_INPUT_REGISTER_COUNT;
 		m_properties.limits.maxVertexInputBindings = D3D11_VS_INPUT_REGISTER_COUNT;
 		m_properties.limits.maxVertexInputAttributeOffset = 2047u;
