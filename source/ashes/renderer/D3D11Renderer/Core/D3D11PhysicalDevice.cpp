@@ -656,17 +656,17 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxPerStageDescriptorUniformBuffers = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
 		m_properties.limits.maxPerStageDescriptorStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxPerStageDescriptorSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
-		m_properties.limits.maxPerStageDescriptorStorageImages = 1048576u;
-		m_properties.limits.maxPerStageDescriptorInputAttachments = 1048576u;
-		m_properties.limits.maxPerStageResources = 4294967295u;
+		m_properties.limits.maxPerStageDescriptorStorageImages = 8u;
+		m_properties.limits.maxPerStageDescriptorInputAttachments = 0u;
+		m_properties.limits.maxPerStageResources = 128u;
 		m_properties.limits.maxDescriptorSetSamplers = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxDescriptorSetUniformBuffers = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetUniformBuffersDynamic = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageBuffersDynamic = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
-		m_properties.limits.maxDescriptorSetStorageImages = 1048576u;
-		m_properties.limits.maxDescriptorSetInputAttachments = 1048576u;
+		m_properties.limits.maxDescriptorSetStorageImages = 64u;
+		m_properties.limits.maxDescriptorSetInputAttachments = 0u;
 		m_properties.limits.maxVertexInputAttributes = D3D11_VS_INPUT_REGISTER_COUNT;
 		m_properties.limits.maxVertexInputBindings = D3D11_VS_INPUT_REGISTER_COUNT;
 		m_properties.limits.maxVertexInputAttributeOffset = 2047u;
@@ -729,10 +729,10 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.framebufferStencilSampleCounts = 31u;
 		m_properties.limits.framebufferNoAttachmentsSampleCounts = 31u;
 		m_properties.limits.maxColorAttachments = 8u;
-		m_properties.limits.sampledImageColorSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
-		m_properties.limits.sampledImageIntegerSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
-		m_properties.limits.sampledImageDepthSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
-		m_properties.limits.sampledImageStencilSampleCounts = D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
+		m_properties.limits.sampledImageColorSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+		m_properties.limits.sampledImageIntegerSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+		m_properties.limits.sampledImageDepthSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+		m_properties.limits.sampledImageStencilSampleCounts = VK_SAMPLE_COUNT_1_BIT | VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
 		m_properties.limits.storageImageSampleCounts = 15u;
 		m_properties.limits.maxSampleMaskWords = 1u;
 		m_properties.limits.timestampComputeAndGraphics = true;
@@ -787,8 +787,8 @@ namespace ashes::D3D11_NAMESPACE
 		m_features.textureCompressionBC = true;
 		m_features.occlusionQueryPrecise = true;
 		m_features.pipelineStatisticsQuery = true;
-		m_features.vertexPipelineStoresAndAtomics = true;
-		m_features.fragmentStoresAndAtomics = true;
+		m_features.vertexPipelineStoresAndAtomics = false;
+		m_features.fragmentStoresAndAtomics = m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
 		m_features.shaderTessellationAndGeometryPointSize = false;//! m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
 		m_features.shaderImageGatherExtended = m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
 		m_features.shaderStorageImageExtendedFormats = m_adapterInfo.featureLevel >= D3D_FEATURE_LEVEL_11_0;
@@ -914,8 +914,8 @@ namespace ashes::D3D11_NAMESPACE
 					{
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT;
-						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_EXT;
+						
+						
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_SRC_BIT;
 						props.optimalTilingFeatures |= VK_FORMAT_FEATURE_BLIT_DST_BIT;
 					}
