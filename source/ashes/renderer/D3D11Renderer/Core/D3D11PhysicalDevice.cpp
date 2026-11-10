@@ -633,9 +633,9 @@ namespace ashes::D3D11_NAMESPACE
 			m_properties.driverVersion = adapterDesc.Revision;
 		}
 
-		auto major = uint32_t( m_adapterInfo.featureLevel >> 12 );
-		auto minor = uint32_t( ( m_adapterInfo.featureLevel >> 8 ) & 0x01 );
-		m_properties.apiVersion = ( major << 22 ) | ( minor << 12 );
+		// D3D feature levels are not Vulkan API versions. This ICD currently
+		// exposes the Vulkan 1.0 entry-point set, so do not advertise 1.1+.
+		m_properties.apiVersion = VK_API_VERSION_1_0;
 		m_properties.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
 		m_properties.limits.maxImageDimension1D = D3D11_REQ_TEXTURE1D_U_DIMENSION;
