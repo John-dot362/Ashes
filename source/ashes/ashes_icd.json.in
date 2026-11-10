@@ -3,6 +3,6 @@
    "ICD": {
       "library_path": "${PATH}${NAME}.${EXT}",
       "api_version": "1.0.0",
-      "is_portability_driver" : true
+      "is_portability_driver" : false
    }
 }
