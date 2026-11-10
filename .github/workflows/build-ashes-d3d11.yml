@@ -2,52 +2,103 @@ name: Build Ashes with Direct3D 11 (x64)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - '.github/workflows/build-ashes-d3d11.yml'
+      - 'vcpkg.json'
+      - 'source/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 90
+
     steps:
-      - name: Checkout Ashes and required submodules
+      - name: Checkout Ashes
         uses: actions/checkout@v4
 
-      - name: Initialize build submodules
+      - name: Initialize required submodules
         shell: pwsh
-        run: git submodule update --init -- CMake external/vcpkg
+        run: git submodule update --init --recursive -- CMake external/vcpkg
 
-      - name: Set up vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgDirectory: '${{ github.workspace }}/external/vcpkg'
-          vcpkgJsonGlob: 'vcpkg.json'
-
-      - name: Configure Ashes with Vulkan and D3D11 renderers
+      - name: Bootstrap vcpkg
         shell: pwsh
-        run: >-
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/external/vcpkg/scripts/buildsystems/vcpkg.cmake"
-          -DVCPKG_MANIFEST_FEATURES="vulkan;direct3d11"
-          -DVCPKG_TARGET_TRIPLET=x64-windows
-          -DASHES_BUILD_RENDERER_PLUGINS=ON
-          -DASHES_BUILD_RENDERER_VKN=ON
-          -DASHES_BUILD_RENDERER_OGL=OFF
-          -DASHES_BUILD_RENDERER_D3D11=ON
-          -DASHES_BUILD_RENDERER_TEST=OFF
-          -DASHES_BUILD_SAMPLES=OFF
-          -DASHES_BUILD_TEMPLATES=OFF
-          -DASHES_BUILD_TESTS=OFF
-          -DASHES_UNITY_BUILD=ON
-          -DPROJECTS_WARNINGS_AS_ERRORS=OFF
-          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/package"
+        run: |
+          & "$env:GITHUB_WORKSPACE\external\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install dependencies, including the Direct3D 11 feature
+        shell: pwsh
+        run: |
+          $vcpkg = "$env:GITHUB_WORKSPACE\external\vcpkg\vcpkg.exe"
+          $installRoot = "$env:GITHUB_WORKSPACE\build\vcpkg_installed"
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\build" | Out-Null
+
+          & $vcpkg install `
+            --triplet=x64-windows `
+            --x-feature=direct3d11 `
+            "--x-manifest-root=$env:GITHUB_WORKSPACE" `
+            "--x-install-root=$installRoot" `
+            "--vcpkg-root=$env:GITHUB_WORKSPACE\external\vcpkg"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure Ashes
+        shell: pwsh
+        run: |
+          $root = $env:GITHUB_WORKSPACE.Replace('\', '/')
+          $cmakeArgs = @(
+            '-S', '.', '-B', 'build',
+            '-G', 'Visual Studio 17 2022', '-A', 'x64',
+            "-DCMAKE_TOOLCHAIN_FILE=$root/external/vcpkg/scripts/buildsystems/vcpkg.cmake",
+            "-DVCPKG_TARGET_TRIPLET=x64-windows",
+            "-DVCPKG_INSTALLED_DIR=$root/build/vcpkg_installed",
+            '-DVCPKG_MANIFEST_INSTALL=OFF',
+            '-DVCPKG_MANIFEST_FEATURES=vulkan;direct3d11',
+            '-DASHES_BUILD_RENDERER_PLUGINS=ON',
+            '-DASHES_BUILD_RENDERER_VKN=ON',
+            '-DASHES_BUILD_RENDERER_OGL=OFF',
+            '-DASHES_BUILD_RENDERER_D3D11=ON',
+            '-DASHES_BUILD_RENDERER_TEST=OFF',
+            '-DASHES_BUILD_SAMPLES=OFF',
+            '-DASHES_BUILD_TEMPLATES=OFF',
+            '-DASHES_BUILD_TESTS=OFF',
+            '-DASHES_UNITY_BUILD=ON',
+            '-DPROJECTS_USE_PRECOMPILED_HEADERS=OFF',
+            '-DPROJECTS_WARNINGS_AS_ERRORS=OFF',
+            "-DCMAKE_INSTALL_PREFIX=$root/package"
+          )
+          & cmake @cmakeArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Install package
-        run: cmake --install build --config Release
+      - name: Install
+        shell: pwsh
+        run: |
+          cmake --install build --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: List installed renderer files
+        shell: pwsh
+        run: |
+          Get-ChildItem package -Recurse -File | ForEach-Object { $_.FullName }
 
       - name: Package binaries
         shell: pwsh
-        run: Compress-Archive -Path "${{ github.workspace }}/package/*" -DestinationPath "${{ github.workspace }}/Ashes-D3D11-x64.zip" -Force
+        run: |
+          Compress-Archive -Path "package\*" -DestinationPath "Ashes-D3D11-x64.zip" -Force
 
       - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
@@ -55,3 +106,4 @@ jobs:
           name: Ashes-D3D11-x64
           path: Ashes-D3D11-x64.zip
           if-no-files-found: error
+          retention-days: 14
