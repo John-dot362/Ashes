@@ -700,8 +700,8 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxBoundDescriptorSets = 8u;
 		m_properties.limits.maxPerStageDescriptorSamplers = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
 		m_properties.limits.maxPerStageDescriptorUniformBuffers = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
-		m_properties.limits.maxPerStageDescriptorStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
-		m_properties.limits.maxPerStageDescriptorSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
+		m_properties.limits.maxPerStageDescriptorStorageBuffers = 8u;
+		m_properties.limits.maxPerStageDescriptorSampledImages = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;
 		m_properties.limits.maxPerStageDescriptorStorageImages = 8u;
 		m_properties.limits.maxPerStageDescriptorInputAttachments = 4u;
 		m_properties.limits.maxPerStageResources = 128u;
@@ -710,7 +710,7 @@ namespace ashes::D3D11_NAMESPACE
 		m_properties.limits.maxDescriptorSetUniformBuffersDynamic = D3D11_COMMONSHADER_CONSTANT_BUFFER_HW_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageBuffers = D3D11_1_UAV_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageBuffersDynamic = D3D11_1_UAV_SLOT_COUNT;
-		m_properties.limits.maxDescriptorSetSampledImages = D3D11_COMMONSHADER_SAMPLER_REGISTER_COUNT;
+		m_properties.limits.maxDescriptorSetSampledImages = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;
 		m_properties.limits.maxDescriptorSetStorageImages = 64u;
 		m_properties.limits.maxDescriptorSetInputAttachments = 4u;
 		m_properties.limits.maxVertexInputAttributes = D3D11_VS_INPUT_REGISTER_COUNT;
