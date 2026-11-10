@@ -101,6 +101,10 @@ namespace ashes::D3D11_NAMESPACE
 
 	ObjectMemory & ObjectMemory::operator=( ObjectMemory && rhs )noexcept
 	{
+		if ( this != &rhs )
+		{
+			safeRelease( resource );
+		}
 		device = rhs.device;
 		deviceMemory = rhs.deviceMemory;
 		resource = rhs.resource;
