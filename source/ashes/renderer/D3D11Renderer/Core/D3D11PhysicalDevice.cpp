@@ -245,7 +245,7 @@ namespace ashes::D3D11_NAMESPACE
 
 	VkPhysicalDeviceMemoryProperties const & PhysicalDevice::getMemoryProperties()const
 	{
-		return Instance::getMemoryProperties();
+		return m_memoryProperties;
 	}
 
 	VkPhysicalDeviceFeatures const & PhysicalDevice::getFeatures()const
@@ -425,7 +425,7 @@ namespace ashes::D3D11_NAMESPACE
 
 	VkPhysicalDeviceMemoryProperties2 const & PhysicalDevice::getMemoryProperties2()const
 	{
-		return Instance::getMemoryProperties2();
+		return m_memoryProperties2;
 	}
 
 	VkResult PhysicalDevice::getSparseImageFormatProperties2( VkPhysicalDeviceSparseImageFormatInfo2 const & formatInfo
@@ -639,6 +639,49 @@ namespace ashes::D3D11_NAMESPACE
 		// D3D feature levels are not Vulkan API versions. This ICD currently
 		// exposes the Vulkan 1.0 entry-point set, so do not advertise 1.1+.
 		m_properties.apiVersion = VK_API_VERSION_1_0;
+		m_memoryProperties = {};
+		uint64_t dedicatedVideoMemory = 0u;
+		uint64_t sharedSystemMemory = 0u;
+
+		if ( m_adapterInfo.adapter2 )
+		{
+			if ( DXGI_ADAPTER_DESC2 desc{}; SUCCEEDED( m_adapterInfo.adapter2->GetDesc2( &desc ) ) )
+			{
+				dedicatedVideoMemory = uint64_t( desc.DedicatedVideoMemory );
+				sharedSystemMemory = uint64_t( desc.SharedSystemMemory );
+			}
+		}
+		else if ( m_adapterInfo.adapter1 )
+		{
+			if ( DXGI_ADAPTER_DESC1 desc{}; SUCCEEDED( m_adapterInfo.adapter1->GetDesc1( &desc ) ) )
+			{
+				dedicatedVideoMemory = uint64_t( desc.DedicatedVideoMemory );
+				sharedSystemMemory = uint64_t( desc.SharedSystemMemory );
+			}
+		}
+
+		if ( dedicatedVideoMemory == 0u )
+		{
+			dedicatedVideoMemory = sharedSystemMemory;
+		}
+		if ( sharedSystemMemory == 0u )
+		{
+			sharedSystemMemory = dedicatedVideoMemory;
+		}
+
+		m_memoryProperties.memoryHeapCount = 2u;
+		m_memoryProperties.memoryHeaps[0] = { dedicatedVideoMemory, VK_MEMORY_HEAP_DEVICE_LOCAL_BIT };
+		m_memoryProperties.memoryHeaps[1] = { sharedSystemMemory, 0u };
+		m_memoryProperties.memoryTypeCount = 3u;
+		m_memoryProperties.memoryTypes[0] = { VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0u };
+		m_memoryProperties.memoryTypes[1] = { VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, 1u };
+		m_memoryProperties.memoryTypes[2] = { VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, 1u };
+#if VK_VERSION_1_1
+		m_memoryProperties2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2, nullptr, m_memoryProperties };
+#elif VK_KHR_get_physical_device_properties2
+		m_memoryProperties2 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2_KHR, nullptr, m_memoryProperties };
+#endif
+
 		m_properties.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
 		m_properties.limits.maxImageDimension1D = D3D11_REQ_TEXTURE1D_U_DIMENSION;
