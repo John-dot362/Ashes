@@ -1,0 +1,57 @@
+name: Build Ashes with Direct3D 11 (x64)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout Ashes and required submodules
+        uses: actions/checkout@v4
+
+      - name: Initialize build submodules
+        shell: pwsh
+        run: git submodule update --init -- CMake external/vcpkg
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: '${{ github.workspace }}/external/vcpkg'
+          vcpkgJsonGlob: 'vcpkg.json'
+
+      - name: Configure Ashes with Vulkan and D3D11 renderers
+        shell: pwsh
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/external/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_MANIFEST_FEATURES="vulkan;direct3d11"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+          -DASHES_BUILD_RENDERER_PLUGINS=ON
+          -DASHES_BUILD_RENDERER_VKN=ON
+          -DASHES_BUILD_RENDERER_OGL=OFF
+          -DASHES_BUILD_RENDERER_D3D11=ON
+          -DASHES_BUILD_RENDERER_TEST=OFF
+          -DASHES_BUILD_SAMPLES=OFF
+          -DASHES_BUILD_TEMPLATES=OFF
+          -DASHES_BUILD_TESTS=OFF
+          -DASHES_UNITY_BUILD=ON
+          -DPROJECTS_WARNINGS_AS_ERRORS=OFF
+          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/package"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Install package
+        run: cmake --install build --config Release
+
+      - name: Package binaries
+        shell: pwsh
+        run: Compress-Archive -Path "${{ github.workspace }}/package/*" -DestinationPath "${{ github.workspace }}/Ashes-D3D11-x64.zip" -Force
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ashes-D3D11-x64
+          path: Ashes-D3D11-x64.zip
+          if-no-files-found: error
