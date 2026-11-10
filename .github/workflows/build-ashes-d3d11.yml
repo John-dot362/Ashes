@@ -2,6 +2,12 @@ name: Build Ashes with Direct3D 11 (x64)
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - 'source/**'
+      - '.github/workflows/build-ashes-d3d11.yml'
   push:
     branches:
       - master
